@@ -154,3 +154,9 @@ Mit `JOURNAL_PORT` lässt sich der Standardport 8765 überschreiben. Umgebungsva
 Unter `koreader/ebookdiary.koplugin` liegt die native Lua-Version mit tabellarischer Monatshälfte, Texteditor, schwarzen Tracker-Kacheln, manuellem Sleep Score (0–100) und Symbolen für Schwimmen, Radfahren, Laufen, Fußball und Padel. Spalten lassen sich hinzufügen (als Tracker), umbenennen, verschieben und aus-/einblenden; bis zu sechs Kachelspalten sind gleichzeitig sichtbar. Bisherige Texte und Tracker werden übernommen.
 
 USB-Installation, Datensicherung und Gerätetest: [koreader/README.md](koreader/README.md). Das fertige Paket liegt unter [`dist/ebook-diary-koreader-prototype.zip`](dist/ebook-diary-koreader-prototype.zip) und lässt sich mit `python3 tools/package_plugin.py` neu erzeugen. Diese Version benötigt weder Python auf dem Kindle noch KUAL. Browser-Prototyp und Plugin verwenden getrennte Datenbestände; ein gemeinsamer Import/Export und Umbrel-Abgleich im Plugin sind noch nicht implementiert.
+
+## Neue Designvorschau zur Abstimmung
+
+[HTML-Vorschau](docs/design-preview.html) · [Tabellenbild](docs/design-preview.png) · [Sleep-Score-Slider](docs/design-preview-slider.png)
+
+Die Vorschau zeigt die vorgeschlagene nächste Anordnung: Navigation oben rechts, Halbmonatswechsel unten rechts, breitere Datumsspalte, kleinere Tagebuchschrift, quadratische Kacheln und senkrechte Spaltentitel. Der Sleep Score ist über einen Slider mit ±1-Tasten und optionalem Löschen bedienbar. Es sind ausschließlich erfundene Daten; Änderungen gelten nur bis zum Neuladen. Diese Designrunde ist noch nicht ins KOReader-Plugin übertragen und enthält keine Synchronisation. [Details und Browserprüfung](docs/design-preview.md).
