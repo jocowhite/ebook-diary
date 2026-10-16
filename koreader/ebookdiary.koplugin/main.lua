@@ -3,127 +3,170 @@ local UIManager = require("ui/uimanager")
 local Menu = require("ui/widget/menu")
 local InputDialog = require("ui/widget/inputdialog")
 local InfoMessage = require("ui/widget/infomessage")
+local ConfirmBox = require("ui/widget/confirmbox")
 local DataStorage = require("datastorage")
 local lfs = require("libs/libkoreader-lfs")
 local json = require("rapidjson")
-local plugin_dir = debug.getinfo(1, "S").source:sub(2):match("(.*/)")
-local Storage = dofile(plugin_dir .. "storage.lua")
-local Diary = WidgetContainer:extend{ name = "ebookdiary", is_doc_only = false }
-local habits = { "Draußen", "Lesen", "Gut gegessen" }
+local path = debug.getinfo(1, "S").source:sub(2):match("(.*/)")
+local Storage = dofile(path .. "storage.lua")
+local Model = dofile(path .. "model.lua")
+local TableView = dofile(path .. "tableview.lua")
+local Diary = WidgetContainer:extend{ name="ebookdiary", is_doc_only=false }
 
-function Diary:init()
-    self.ui.menu:registerToMainMenu(self)
-end
-
+function Diary:init() self.ui.menu:registerToMainMenu(self) end
 function Diary:addToMainMenu(items)
-    items.ebookdiary = {
-        text = "Ein Tag. Eine Zeile.",
-        sorting_hint = "more_tools",
-        callback = function() self:showMonth(os.date("%Y-%m")) end,
-    }
+    items.ebookdiary = {text="Ein Tag. Eine Zeile.",sorting_hint="more_tools",callback=function() self:today() end}
 end
-
-function Diary:notify(text)
-    UIManager:show(InfoMessage:new{ text = text })
-end
-
+function Diary:notify(text) UIManager:show(InfoMessage:new{text=text}) end
 function Diary:getStorage()
     if not self.storage then
         local directory = DataStorage:getDataDir() .. "/ebook-diary"
-        if not lfs.attributes(directory, "mode") then
-            assert(lfs.mkdir(directory), "Datenordner konnte nicht erstellt werden")
-        end
-        self.storage = Storage:new(directory, json)
+        if not lfs.attributes(directory,"mode") then assert(lfs.mkdir(directory),"Datenordner konnte nicht erstellt werden") end
+        self.storage = Storage:new(directory,json)
     end
     return self.storage
 end
-
-function Diary:showMonth(month)
-    local ok, entries = pcall(function() return self:getStorage():read(month) end)
-    if not ok then self:notify("Tagebuch konnte nicht geladen werden:\n" .. tostring(entries)); return end
-    local year, number = month:match("^(%d+)%-(%d+)$")
-    year, number = tonumber(year), tonumber(number)
-    local count = tonumber(os.date("%d", os.time{ year = year, month = number + 1, day = 0, hour = 12 }))
-    local items, menu = {}, nil
-    local function move(offset)
-        local target = os.date("%Y-%m", os.time{ year = year, month = number + offset, day = 1, hour = 12 })
-        UIManager:close(menu); self:showMonth(target)
-    end
-    items[#items + 1] = { text = "← Voriger Monat", callback = function() move(-1) end }
-    items[#items + 1] = { text = "Nächster Monat →", callback = function() move(1) end }
-    for day = 1, count do
-        local date = string.format("%s-%02d", month, day)
-        local entry = entries[date] or { date = date, text = "", habits = {false, false, false} }
-        local line = entry.text:match("[^\r\n]+") or "Eintrag hinzufügen"
-        items[#items + 1] = {
-            text = string.format("%02d · %s", day, line),
-            callback = function()
-                UIManager:close(menu)
-                self:showDay(date, entry)
-            end,
-        }
-    end
-    menu = Menu:new{ title = "Tagebuch · " .. month, item_table = items, is_popout = false, is_borderless = true }
-    UIManager:show(menu)
+function Diary:today()
+    self.month=os.date("%Y-%m")
+    self.half=tonumber(os.date("%d"))<=15 and 1 or 2
+    self:refresh()
 end
-
-function Diary:save(date, entry)
-    local ok, err = pcall(function() self:getStorage():save(date, entry) end)
+function Diary:moveMonth(offset)
+    local year,month=self.month:match("(%d+)%-(%d+)")
+    month=tonumber(month)+offset; year=tonumber(year)
+    if month==0 then year=year-1; month=12 elseif month==13 then year=year+1; month=1 end
+    if year<1900 or year>9998 then return end
+    self.month=string.format("%04d-%02d",year,month); self.half=1; self:refresh()
+end
+function Diary:refresh()
+    local ok,err=pcall(function()
+        self.entries=self:getStorage():read(self.month)
+        self.config=self:getStorage():readConfig()
+    end)
+    if not ok then self:notify("Tagebuch konnte nicht geladen werden:\n" .. tostring(err)); return end
+    if self.view then
+        self.view.month=self.month; self.view.half=self.half
+        self.view.entries=self.entries; self.view.config=self.config
+        UIManager:setDirty(self.view,"full")
+    else
+        self.view=TableView:new{owner=self,month=self.month,half=self.half,entries=self.entries,config=self.config}
+        UIManager:show(self.view)
+    end
+end
+function Diary:entry(date) return Model.entry(date,self.entries[date]) end
+function Diary:save(date,entry)
+    local ok,err=pcall(function() self:getStorage():save(date,entry) end)
     if not ok then self:notify("Nicht gespeichert:\n" .. tostring(err)); return false end
-    return true
+    self:refresh(); return true
 end
-
-function Diary:showDay(date, entry)
-    local menu
-    local items = {
-        { text = "Text schreiben / bearbeiten", callback = function()
-            UIManager:close(menu); self:edit(date, entry)
-        end },
-    }
-    for index, label in ipairs(habits) do
-        local i = index
-        items[#items + 1] = {
-            text = (entry.habits[i] and "[x] " or "[ ] ") .. label,
-            callback = function()
-                local updated = { date = date, text = entry.text, habits = {entry.habits[1], entry.habits[2], entry.habits[3]} }
-                updated.habits[i] = not updated.habits[i]
-                if self:save(date, updated) then
-                    UIManager:close(menu); self:showDay(date, updated)
-                end
-            end,
-        }
-    end
-    items[#items + 1] = { text = "Zur Monatsliste", callback = function()
-        UIManager:close(menu); self:showMonth(date:sub(1, 7))
-    end }
-    menu = Menu:new{ title = date, item_table = items, is_popout = false, is_borderless = true }
-    UIManager:show(menu)
+function Diary:saveConfig(config)
+    local ok,err=pcall(function() self:getStorage():saveConfig(config) end)
+    if not ok then self:notify("Spalten nicht geändert:\n" .. tostring(err)); return false end
+    self:refresh(); return true
 end
-
-function Diary:edit(date, entry)
+function Diary:input(title,initial,save,options)
+    options=options or {}
     local dialog
-    dialog = InputDialog:new{
-        title = "Tagebuch · " .. date,
-        input = entry.text,
-        input_type = "text",
-        allow_newline = true,
-        fullscreen = true,
-        add_nav_bar = true,
-        buttons = {{
-            { text = "Abbrechen", callback = function()
-                UIManager:close(dialog); self:showDay(date, entry)
-            end },
-            { text = "Speichern", is_enter_default = false, callback = function()
-                local updated = { date = date, text = dialog:getInputText(), habits = entry.habits }
-                if self:save(date, updated) then
-                    UIManager:close(dialog); self:showDay(date, updated)
-                    self:notify("Lokal gespeichert")
-                end
-            end },
+    dialog=InputDialog:new{
+        title=title,input=initial,input_type=options.number and "number" or nil,
+        description=options.description,
+        allow_newline=options.multiline or false,fullscreen=options.multiline or false,
+        add_nav_bar=options.multiline or false,
+        buttons={{
+            {text="Abbrechen",callback=function() UIManager:close(dialog) end},
+            {text="Speichern",is_enter_default=not options.multiline,callback=function()
+                if save(dialog:getInputText()) then UIManager:close(dialog) end
+            end},
         }},
     }
-    UIManager:show(dialog)
-    dialog:onShowKeyboard()
+    UIManager:show(dialog); dialog:onShowKeyboard()
 end
-
+function Diary:editText(date)
+    local entry=self:entry(date)
+    self:input("Tagebuch · " .. date,entry.text,function(value)
+        entry.text=value; return self:save(date,entry)
+    end,{multiline=true,description="Änderungen ausdrücklich speichern. Abbrechen verwirft sie."})
+end
+function Diary:editCell(date,column)
+    if column.kind=="habit" then
+        local entry=self:entry(date); Model.toggle(entry,column.id); self:save(date,entry)
+    elseif column.kind=="sleep" then
+        local entry=self:entry(date)
+        self:input("Sleep Score · " .. date,entry.sleep_score~=nil and tostring(entry.sleep_score) or "",function(value)
+            local ok,score=pcall(Model.sleepScore,value)
+            if not ok then self:notify(tostring(score)); return false end
+            entry.sleep_score=score; return self:save(date,entry)
+        end,{number=true,description="0–100. Feld leeren = kein Wert. Manuelle Eingabe."})
+    elseif column.kind=="sport" then self:showSports(date) end
+end
+function Diary:showSports(date)
+    local entry=self:entry(date)
+    local items,menu={},nil
+    for _,sport in ipairs(Model.sports) do
+        local id,label=sport.id,sport.label
+        items[#items+1]={text=(entry.sports[id] and "☑ " or "☐ ") .. label,callback=function()
+            local updated=self:entry(date); updated.sports[id]=not updated.sports[id]
+            if self:save(date,updated) then UIManager:close(menu); self:showSports(date) end
+        end}
+    end
+    items[#items+1]={text="Alle Sportarten leeren",callback=function()
+        local updated=self:entry(date); updated.sports={}
+        if self:save(date,updated) then UIManager:close(menu); self:showSports(date) end
+    end}
+    items[#items+1]={text="Fertig",callback=function() UIManager:close(menu) end}
+    menu=Menu:new{title="Sport · " .. date,item_table=items}
+    UIManager:show(menu)
+end
+function Diary:showColumns()
+    local items,menu={},nil
+    for index,column in ipairs(self.config.columns) do
+        local i,col=index,column
+        items[#items+1]={text=(col.visible and "☑ " or "☐ ") .. col.label,callback=function()
+            UIManager:close(menu); self:columnOptions(i)
+        end}
+    end
+    items[#items+1]={text="+ Eigene Tracker-Spalte",callback=function()
+        UIManager:close(menu)
+        self:input("Neue Tracker-Spalte","",function(label)
+            local ok,config=pcall(Model.addColumn,self.config,label)
+            if not ok then self:notify(tostring(config)); return false end
+            return self:saveConfig(config)
+        end,{description="Name mit höchstens 60 Bytes. Bis zu sechs Kachelspalten gleichzeitig sichtbar."})
+    end}
+    menu=Menu:new{title="Spalten · auswählen zum Bearbeiten",item_table=items}
+    UIManager:show(menu)
+end
+function Diary:columnOptions(index)
+    local col=self.config.columns[index]
+    local menu,items=nil,{}
+    local function update(change)
+        local config=Model.copy(self.config); change(config)
+        if self:saveConfig(config) then UIManager:close(menu); self:showColumns() end
+    end
+    items[#items+1]={text=col.visible and "Spalte ausblenden" or "Spalte einblenden",callback=function()
+        update(function(config) config.columns[index].visible=not col.visible end)
+    end}
+    items[#items+1]={text="Umbenennen",callback=function()
+        UIManager:close(menu)
+        self:input("Spaltenname",col.label,function(label)
+            local config=Model.copy(self.config)
+            config.columns[index].label=label:match("^%s*(.-)%s*$")
+            return self:saveConfig(config)
+        end)
+    end}
+    if index>1 then items[#items+1]={text="Nach links verschieben",callback=function()
+        update(function(config) config.columns[index],config.columns[index-1]=config.columns[index-1],config.columns[index] end)
+    end} end
+    if index<#self.config.columns then items[#items+1]={text="Nach rechts verschieben",callback=function()
+        update(function(config) config.columns[index],config.columns[index+1]=config.columns[index+1],config.columns[index] end)
+    end} end
+    if col.id:match("^custom_") then items[#items+1]={text="Eigene Spalte entfernen",callback=function()
+        UIManager:show(ConfirmBox:new{text="Spalte „" .. col.label .. "“ entfernen? Vorhandene Tageswerte bleiben in den Dateien; zum späteren Wiedereinblenden bitte stattdessen ausblenden.",ok_callback=function()
+            update(function(config) table.remove(config.columns,index) end)
+        end})
+    end} end
+    items[#items+1]={text="Zur Spaltenliste",callback=function() UIManager:close(menu); self:showColumns() end}
+    menu=Menu:new{title=col.label,item_table=items}
+    UIManager:show(menu)
+end
 return Diary

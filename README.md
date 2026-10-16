@@ -4,7 +4,9 @@ Lokaler Tagebuch-Prototyp für Joel, nach dem fotografierten Notizbuch.
 
 ## Status
 
-Bedienbare Oberfläche und lokaler Dienst sind implementiert. Backend mit Integrationstests geprüft; Schreiben, Autosave, erneutes Laden und JSON-Export zusätzlich mit Chromium geprüft. Das Layout wurde bei 1024 und 600 Pixeln Bildschirmbreite kontrolliert. **Noch kein auf dem Kindle getestetes Installationspaket.** Geräteangaben laut Nutzer: Kindle 11. Generation (2024), Firmware 5.19.6, Jailbreak Véra. Die verfügbare Python-Laufzeit ist noch ungeklärt; die Gerätekompatibilität wurde noch nicht praktisch geprüft. Ob die vorhandene Browser-App eine lokale URL ohne WLAN öffnen darf und wie die Tastatur reagiert, muss am Gerät geprüft werden. Alternativ kann die Oberfläche als KOReader-Plugin umgesetzt werden.
+Es gibt zwei lokale Oberflächen: den ursprünglichen Browser-Prototyp (`index.html` + `server.py`) und ein natives KOReader-Plugin. Das Plugin zeigt eine tabellarische Monatshälfte mit schwarzen Tracker-Kacheln, manuellen Sleep Scores, Sport-Symbolen und konfigurierbaren Spalten. Der erste Plugin-Entwurf lief laut Nutzer; die neue Tabellenfassung ist noch nicht am Kindle geprüft. Installation und Update: [koreader/README.md](koreader/README.md).
+
+Der Browser-Prototyp wurde mit Integrationstests und Chromium geprüft. Sein optionaler Umbrel-Abgleich ist vom Plugin getrennt. Das Plugin benötigt weder Python noch KUAL.
 
 Die echte Umbrel-Dashboard-App wurde nicht eingesehen oder verändert. Ihr API-Endpunkt muss dort noch ergänzt oder an den unten beschriebenen Vertrag angepasst werden.
 
@@ -115,14 +117,14 @@ Vom Nutzer gemeldeter Stand:
 - Zugriff auf `koreader/plugins` per USB: möglich
 - KUAL: läuft laut Nutzer noch nicht; Installationsstatus ungeklärt
 
-Die Angaben dokumentieren das Zielgerät; Installation und Funktion des Tagebuchs auf diesem Gerät sind noch nicht geprüft.
+Die erste Listenfassung des Plugins lief laut Nutzer auf dem Gerät. Die neue Tabellenfassung benötigt einen erneuten Gerätetest.
 
 ## Für die Kindle-Version noch zu klären
 
 1. Das experimentelle KOReader-Plugin nach der Anleitung in `koreader/README.md` auf dem Gerät testen.
-2. Ist eine Python-3-Laufzeit installiert? Ist SSH erreichbar?
+2. Tabellenlayout, Tastatur und Speicherung auf dem Gerät prüfen. Python ist für das Plugin nicht nötig.
 3. Der Quellcode der bestehenden Dashboard-App liegt im benachbarten Repository `my-umbrel-apps/my-store-triathlon-hq`; der vorgeschlagene Tagesdaten-Endpunkt muss dort noch geprüft bzw. umgesetzt werden.
-4. Die gewünschten manuellen Tracker-Spalten.
+4. Eigene Tracker lassen sich jetzt direkt im Plugin über „Spalten“ konfigurieren.
 
 Danach: geeigneter Startmechanismus, Einrichtung auf dem Kindle und Tests mit Flugmodus, Tastatur, Standby und Neustart. Dieses Paket führt keine Systemänderungen am Kindle durch und enthält kein geratenes Launcher-Script.
 
@@ -143,10 +145,12 @@ Mit `JOURNAL_PORT` lässt sich der Standardport 8765 überschreiben. Umgebungsva
 
 ## Nächste Entwicklungsschritte
 
-1. Einen Start über den vorhandenen KOReader prüfen. Ein KOReader-Plugin ist der nächste zu untersuchende Installationsweg; die bisherige HTML-/Python-Anwendung ist noch kein KOReader-Plugin. Python-Verfügbarkeit und Offline-Browserbetrieb bleiben für den bisherigen Ansatz ungeklärt. KUAL ist für die Untersuchung des Plugin-Wegs keine Voraussetzung.
+1. Die neue Tabellenfassung auf dem Kindle prüfen, insbesondere bestehende Einträge, Kacheln und manuelle Sport-/Schlafwerte.
 2. Den lesenden Tagesdaten-Endpunkt mit der bestehenden Umbrel-Dashboard-App abstimmen.
-3. Die gewünschten Tracker bestätigen und anschließend die Bedienung am Gerät verfeinern.
+3. Die Bedienung anhand des Gerätetests verfeinern.
 
 ## Experimentelles KOReader-Plugin
 
-Unter `koreader/ebookdiary.koplugin` liegt eine erste native Lua-Version mit Monatsliste, Texteditor, ausdrücklichem Speichern und den drei Trackern. USB-Installation und Gerätetest: [koreader/README.md](koreader/README.md). Diese Version benötigt weder Python noch KUAL. Sie verwendet einen eigenen Datenordner; Import/Export zum Browser-Prototyp und Umbrel-Abgleich sind noch nicht implementiert. Noch nicht auf dem Kindle getestet.
+Unter `koreader/ebookdiary.koplugin` liegt die native Lua-Version mit tabellarischer Monatshälfte, Texteditor, schwarzen Tracker-Kacheln, manuellem Sleep Score (0–100) und Symbolen für Schwimmen, Radfahren, Laufen, Fußball und Padel. Spalten lassen sich hinzufügen (als Tracker), umbenennen, verschieben und aus-/einblenden; bis zu sechs Kachelspalten sind gleichzeitig sichtbar. Bisherige Texte und Tracker werden übernommen.
+
+USB-Installation, Datensicherung und Gerätetest: [koreader/README.md](koreader/README.md). Das fertige Paket liegt unter [`dist/ebook-diary-koreader-prototype.zip`](dist/ebook-diary-koreader-prototype.zip) und lässt sich mit `python3 tools/package_plugin.py` neu erzeugen. Diese Version benötigt weder Python auf dem Kindle noch KUAL. Browser-Prototyp und Plugin verwenden getrennte Datenbestände; ein gemeinsamer Import/Export und Umbrel-Abgleich im Plugin sind noch nicht implementiert.
