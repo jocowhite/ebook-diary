@@ -1,0 +1,17 @@
+# Private journal entries and cached health data
+/data/
+
+# Local configuration
+.env
+.env.*
+!.env.example
+.venv/
+
+# Python and local tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+
+# Generated USB packages
+/dist/
