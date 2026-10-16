@@ -30,11 +30,15 @@ function Text:getSize()
     local chars=0; for _ in self.text:gmatch("[^\128-\191]") do chars=chars+1 end
     return {w=math.min(self.max_width,chars*self.face.size*.52),h=self.face.size*1.3}
 end
-function Text:paintTo(_,x,y)
+function Text:paintTo(target,x,y)
+    if target.offscreen then target.label=self.text;return end
     drawing[#drawing+1]=string.format('<text x="%s" y="%s" font-family="serif" font-size="%s" fill="rgb(%s,%s,%s)">%s</text>',x,y+self.face.size,self.face.size,self.fgcolor,self.fgcolor,self.fgcolor,escape(self.text))
 end
 local Image=class(Base)
 function Image:paintTo(_,x,y)
+    if self.image then
+        drawing[#drawing+1]=string.format('<text transform="translate(%s,%s) rotate(-90)" font-size="11">%s</text>',x+10,y+60,escape(self.image.label));return
+    end
     local f=assert(io.open(self.file)); local svg=f:read("*a"); f:close()
     svg=svg:gsub('width="32" height="32"',string.format('x="%s" y="%s" width="%s" height="%s"',x,y,self.width,self.height))
     drawing[#drawing+1]=svg
@@ -54,7 +58,8 @@ local modules={
     ["ui/geometry"]=Base,["ui/gesturerange"]=Base,
     ["ui/widget/textwidget"]=Text,["ui/widget/imagewidget"]=Image,
     ["ui/font"]={getFace=function(_,_,size) return {size=size} end},
-    ["ffi/blitbuffer"]={COLOR_WHITE=255,COLOR_BLACK=0,Color8=function(v) return v end},
+    ["ffi/blitbuffer"]={COLOR_WHITE=255,COLOR_BLACK=0,Color8=function(v) return v end,
+        new=function() return {offscreen=true,fill=function() end,free=function() end,rotatedCopy=function(self) return {label=self.label} end} end},
     ["device"]={screen={getWidth=function() return 600 end,getHeight=function() return 800 end}},
     ["datastorage"]={},["libs/libkoreader-lfs"]={},["rapidjson"]={},
 }
@@ -65,6 +70,7 @@ local fail=false
 local storage={
     read=function() return Model.copy(data) end,
     readConfig=function() return Model.copy(config) end,
+    readMetrics=function() return {days={}} end,
     save=function(_,date,entry)
         if fail then error("Disk full") end
         Model.validateEntry(entry); data[date]=Model.copy(entry)
@@ -78,7 +84,7 @@ owner.month="2026-10"; owner.half=2; owner:refresh()
 local function paint()
     drawing={}; owner.view:paintTo(bb,0,0)
 end
-paint(); assert(#owner.view.hits==6+16*6+1) -- close + navigation + half selectors, cells, settings
+paint(); assert(#owner.view.hits==8+16*6) -- close + navigation + half selectors, cells, settings
 local function tapCell(day,column)
     local l=dofile("koreader/ebookdiary.koplugin/layout.lua").build(600,800,#Model.visibleColumns(config))
     local x=l.pad+l.day_width+(column==0 and 10 or l.note_width+(column-.5)*l.metric_width)
@@ -89,15 +95,17 @@ tapCell(16,0)
 local editor=last(); assert(editor.allow_newline and editor.keyboard_shown)
 editor.input="Mein erster Tabellentag"; editor.buttons[1][2].callback()
 assert(data["2026-10-16"].text=="Mein erster Tabellentag")
--- Numeric score: invalid values keep the dialog open; zero is a real value.
-paint(); tapCell(16,2); local score=last(); score.input="101"; score.buttons[1][2].callback()
-assert(data["2026-10-16"].sleep_score==nil); UI:close(last())
-score.input="0"; score.buttons[1][2].callback(); assert(data["2026-10-16"].sleep_score==0)
+-- Slider uses bounded steps, supports zero and preserves explicit missing values.
+paint(); tapCell(16,2); local score=last(); score:paintTo(bb,0,0)
+score:change(101); assert(score.value==100)
+score:change(-1); assert(score.value==0)
+assert(score.onSave(0));UI:close(score)
+assert(data["2026-10-16"].sleep_score==0 and data["2026-10-16"].sleep_manual)
 paint(); tapCell(16,3); assert(data["2026-10-16"].trackers.outside)
 -- Selecting each sport preserves the others and the text/trackers/score.
 paint(); tapCell(16,1)
 for index=1,5 do last().item_table[index].callback() end
-last().item_table[7].callback()
+last().item_table[8].callback()
 for _,sport in ipairs(Model.sports) do assert(data["2026-10-16"].sports[sport.id]) end
 assert(data["2026-10-16"].sleep_score==0 and data["2026-10-16"].text=="Mein erster Tabellentag")
 paint()

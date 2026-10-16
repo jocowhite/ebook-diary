@@ -1,6 +1,6 @@
 # HTML-Entwurf für die nächste Kindle-Ansicht
 
-Die Bilder stammen aus der tatsächlichen HTML-Vorschau, mit einem 600 × 800 Pixel großen Tagebuchbereich und zweifacher Bildauflösung. Alle Inhalte sind Beispieldaten. Es handelt sich um einen Browser-Entwurf, keinen Screenshot vom Kindle. Die KOReader-ZIP enthält weiterhin die zuletzt veröffentlichte native Ansicht; diese Vorschau muss nach der Designabstimmung noch übertragen werden.
+Die Bilder stammen aus der tatsächlichen HTML-Vorschau, mit einem 600 × 800 Pixel großen Tagebuchbereich und zweifacher Bildauflösung. Alle Inhalte sind Beispieldaten. Es handelt sich um einen Browser-Entwurf, keinen Screenshot vom Kindle. Der bestätigte Entwurf wurde inzwischen ins KOReader-Plugin übertragen, einschließlich Schlaf-Slider. Die native Fassung bietet zusätzlich den Umbrel-Abgleich. Diese HTML-Vorschau bleibt eine rein lokale Demonstration mit Beispieldaten.
 
 ![Tabellenansicht](design-preview.png)
 
@@ -28,4 +28,4 @@ node tools/check_design_preview.cjs
 
 Optional `CHROMIUM_PATH` für den Browserpfad und `DIARY_PREVIEW_URL` für eine abweichende lokale URL setzen. Der Test prüft Navigation und Seitenwechsel, 15/16 Tage, vollständig sichtbare zweistellige Tageszahlen und Standardbeschriftungen, quadratische Kacheln, geladene Sport-Symbole, Slidergrenzen 0/100, Entfernen und Abbrechen, ±1-Tasten, eine zusätzliche Spalte, die Gesamtbreite bei 600 Pixeln und JavaScript-Laufzeitfehler. Er erzeugt die beiden Bilder erneut. Darstellung, Textgrößen und Gesten auf dem echten Kindle sind dadurch nicht geprüft.
 
-Die anschließende Synchronisation ist noch offen: Der vorhandene Browser-Prototyp beschreibt bereits den vorgeschlagenen lesenden Umbrel-Tagesdaten-Endpunkt; dessen Implementierung im Dashboard und der Abgleich im KOReader-Plugin sind separate nächste Entwicklungsschritte.
+Der lesende Tagesdaten-Endpunkt ist inzwischen im Health Dashboard 0.3.1 implementiert, der Client im KOReader-Plugin. Das Dashboard muss auf Umbrel aktualisiert werden; der Live-Test im Heimnetz steht noch aus.

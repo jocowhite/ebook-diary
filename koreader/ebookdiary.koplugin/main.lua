@@ -11,6 +11,8 @@ local path = debug.getinfo(1, "S").source:sub(2):match("(.*/)")
 local Storage = dofile(path .. "storage.lua")
 local Model = dofile(path .. "model.lua")
 local TableView = dofile(path .. "tableview.lua")
+local SleepDialog = dofile(path .. "sleepdialog.lua")
+local Sync = dofile(path .. "sync.lua")
 local Diary = WidgetContainer:extend{ name="ebookdiary", is_doc_only=false }
 
 function Diary:init() self.ui.menu:registerToMainMenu(self) end
@@ -42,14 +44,15 @@ function Diary:refresh()
     local ok,err=pcall(function()
         self.entries=self:getStorage():read(self.month)
         self.config=self:getStorage():readConfig()
+        self.metrics=self:getStorage():readMetrics(self.month)
     end)
     if not ok then self:notify("Tagebuch konnte nicht geladen werden:\n" .. tostring(err)); return end
     if self.view then
         self.view.month=self.month; self.view.half=self.half
-        self.view.entries=self.entries; self.view.config=self.config
+        self.view.entries=self.entries; self.view.config=self.config; self.view.metrics=self.metrics
         UIManager:setDirty(self.view,"full")
     else
-        self.view=TableView:new{owner=self,month=self.month,half=self.half,entries=self.entries,config=self.config}
+        self.view=TableView:new{owner=self,month=self.month,half=self.half,entries=self.entries,config=self.config,metrics=self.metrics}
         UIManager:show(self.view)
     end
 end
@@ -91,27 +94,33 @@ function Diary:editCell(date,column)
     if column.kind=="habit" then
         local entry=self:entry(date); Model.toggle(entry,column.id); self:save(date,entry)
     elseif column.kind=="sleep" then
-        local entry=self:entry(date)
-        self:input("Sleep Score · " .. date,entry.sleep_score~=nil and tostring(entry.sleep_score) or "",function(value)
-            local ok,score=pcall(Model.sleepScore,value)
-            if not ok then self:notify(tostring(score)); return false end
-            entry.sleep_score=score; return self:save(date,entry)
-        end,{number=true,description="0–100. Feld leeren = kein Wert. Manuelle Eingabe."})
+        local raw=self:entry(date)
+        local effective=Model.withMetrics(date,raw,self.metrics.days[date])
+        UIManager:show(SleepDialog:new{date=date,score=effective.sleep_score,
+            onSave=function(value)
+                raw.sleep_score=value;raw.sleep_manual=true;return self:save(date,raw)
+            end,
+            onAuto=function() raw.sleep_manual=false;raw.sleep_score=nil;return self:save(date,raw) end,
+        })
     elseif column.kind=="sport" then self:showSports(date) end
 end
 function Diary:showSports(date)
-    local entry=self:entry(date)
+    local entry=Model.withMetrics(date,self:entry(date),self.metrics.days[date])
     local items,menu={},nil
     for _,sport in ipairs(Model.sports) do
         local id,label=sport.id,sport.label
         items[#items+1]={text=(entry.sports[id] and "☑ " or "☐ ") .. label,callback=function()
-            local updated=self:entry(date); updated.sports[id]=not updated.sports[id]
+            local updated=self:entry(date); updated.sports=Model.copy(entry.sports); updated.sports[id]=not updated.sports[id]; updated.sports_manual=true
             if self:save(date,updated) then UIManager:close(menu); self:showSports(date) end
         end}
     end
     items[#items+1]={text="Alle Sportarten leeren",callback=function()
-        local updated=self:entry(date); updated.sports={}
+        local updated=self:entry(date); updated.sports={}; updated.sports_manual=true
         if self:save(date,updated) then UIManager:close(menu); self:showSports(date) end
+    end}
+    items[#items+1]={text="Umbrel-Sportwerte verwenden",callback=function()
+        local updated=self:entry(date);updated.sports_manual=false;updated.sports={}
+        if self:save(date,updated) then UIManager:close(menu);self:showSports(date) end
     end}
     items[#items+1]={text="Fertig",callback=function() UIManager:close(menu) end}
     menu=Menu:new{title="Sport · " .. date,item_table=items}
@@ -168,5 +177,29 @@ function Diary:columnOptions(index)
     items[#items+1]={text="Zur Spaltenliste",callback=function() UIManager:close(menu); self:showColumns() end}
     menu=Menu:new{title=col.label,item_table=items}
     UIManager:show(menu)
+end
+function Diary:showSync()
+    local items,menu={},nil
+    items[#items+1]={text="Jetzt abgleichen (" .. self.month .. ")",callback=function()
+        UIManager:close(menu)
+        local NetworkMgr=require("ui/network/manager")
+        NetworkMgr:runWhenConnected(function()
+            local base=self.config.sync_url or Sync.default_url
+            local ok,err=pcall(Sync.run,self:getStorage(),base,self.month,json)
+            if ok then self:refresh();self:notify("Umbrel-Abgleich gespeichert")
+            else self:notify("Kein Abgleich. Letzte Werte bleiben erhalten.\n" .. tostring(err)) end
+        end)
+    end}
+    items[#items+1]={text="Server: " .. (self.config.sync_url or Sync.default_url),callback=function()
+        UIManager:close(menu)
+        self:input("Umbrel-Server",self.config.sync_url or Sync.default_url,function(value)
+            local ok=pcall(Sync.url,value,self.month)
+            if not ok then self:notify("Bitte http://IP:Port eingeben.");return false end
+            local config=Model.copy(self.config);config.sync_url=value:gsub("/+$","")
+            return self:saveConfig(config)
+        end,{description="Heimnetzadresse inkl. Port; kein Tagebuchtext wird übertragen."})
+    end}
+    items[#items+1]={text="Letzter Abgleich: " .. (self.metrics.synced_at or "noch keiner"),callback=function() end}
+    menu=Menu:new{title="Umbrel · Schlaf und Sport",item_table=items};UIManager:show(menu)
 end
 return Diary

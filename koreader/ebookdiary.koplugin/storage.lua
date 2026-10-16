@@ -70,4 +70,16 @@ function Storage:saveConfig(config)
     self:writeFile("columns.json", config)
 end
 
+function Storage:readMetrics(month)
+    local count=Model.monthDays(month)
+    local cached=self:readFile("metrics-" .. month .. ".json",{days={}})
+    assert(type(cached)=="table" and type(cached.days)=="table","Ungültiger Messwert-Cache")
+    for date,metric in pairs(cached.days) do
+        assert(type(date)=="string" and date:match("^%d%d%d%d%-%d%d%-%d%d$") and date:sub(1,7)==month and type(metric)=="table","Ungültiger Cache-Tag")
+        local day=tonumber(date:sub(9,10));assert(day>=1 and day<=count,"Ungültiger Cache-Tag")
+        Model.validateEntry({text="",habits={false,false,false},sleep_score=metric.sleep_score,sports=metric.sports})
+    end
+    return cached
+end
+
 return Storage

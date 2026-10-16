@@ -74,34 +74,36 @@ function View:paintTo(bb, ox, oy)
     rect(0,0,l.w,l.h,white)
     text("EIN TAG. EINE ZEILE.",pad,12*s,l.w-2*pad,18*s,10,false)
     local year, month = self.month:match("(%d+)%-(%d+)")
-    text(months[tonumber(month)] .. " " .. year,pad,34*s,l.w-2*pad-46*s,42*s,27,false)
-    button("×",l.w-pad-38*s,35*s,38*s,36*s,function() self:onClose() end)
-    rect(pad,84*s,l.w-2*pad,2*s,black)
-    button("‹",pad,96*s,36*s,34*s,function() self.owner:moveMonth(-1) end)
-    button("Heute",pad+42*s,96*s,65*s,34*s,function() self.owner:today() end)
-    button("›",pad+113*s,96*s,36*s,34*s,function() self.owner:moveMonth(1) end)
+    text(months[tonumber(month)] .. " " .. year,pad,34*s,l.w-2*pad-188*s,42*s,25,false)
+    local nav = l.w-pad-183*s
+    button("‹",nav,35*s,32*s,34*s,function() self.owner:moveMonth(-1) end)
+    button("Heute",nav+37*s,35*s,58*s,34*s,function() self.owner:today() end)
+    button("›",nav+100*s,35*s,32*s,34*s,function() self.owner:moveMonth(1) end)
+    button("×",l.w-pad-38*s,35*s,38*s,34*s,function() self:onClose() end)
+    rect(pad,80*s,l.w-2*pad,2*s,black)
     local count = Model.monthDays(self.month)
-    local end_label = "16–" .. count
-    button("1–15",l.w-pad-125*s,96*s,58*s,34*s,function() self.owner.half=1; self.owner:refresh() end,self.half==1)
-    button(end_label,l.w-pad-61*s,96*s,61*s,34*s,function() self.owner.half=2; self.owner:refresh() end,self.half==2)
     local note_x = pad+l.day_width
     local metric_x = note_x+l.note_width
-    text("TAG",pad,140*s,l.day_width,28*s,9,true)
-    text("WAS BLEIBT VON HEUTE?",note_x,140*s,l.note_width,28*s,9,false)
+    text("TAG",pad,126*s,l.day_width,28*s,9,true)
+    text("WAS BLEIBT VON HEUTE?",note_x,126*s,l.note_width,28*s,9,false)
     for index, col in ipairs(cols) do
         local x = metric_x+(index-1)*l.metric_width
-        local a,b = col.label:match("^(%S+)%s+(.+)$")
-        if a then
-            text(a,x,140*s,l.metric_width,13*s,9,true)
-            text(b,x,153*s,l.metric_width,13*s,9,true)
-        else text(col.label,x,140*s,l.metric_width,26*s,9,true) end
+        local label = TextWidget:new{text=col.label,face=Font:getFace("cfont",math.floor(11*s)),
+            max_width=math.floor(70*s),padding=0}
+        local dim=label:getSize()
+        local buffer=Blitbuffer.new(math.max(1,dim.w),math.max(1,dim.h),Blitbuffer.TYPE_BB8)
+        buffer:fill(white); label:paintTo(buffer,0,0); label:free()
+        local rotated=buffer:rotatedCopy(270); buffer:free()
+        local image=ImageWidget:new{image=rotated,is_icon=true,image_disposable=true}
+        self.children[#self.children+1]=image
+        image:paintTo(bb,ox+math.floor(x+(l.metric_width-dim.h)/2),oy+math.floor(82*s+(70*s-dim.w)/2))
     end
     rect(pad,l.top-1,l.w-2*pad,1,black)
     local start = self.half==1 and 1 or 16
     local last = self.half==1 and 15 or count
     for day=start,last do
         local date = string.format("%s-%02d",self.month,day)
-        local entry = Model.entry(date,self.entries[date])
+        local entry = Model.withMetrics(date,self.entries[date],self.metrics and self.metrics.days[date])
         local y = l.top+(day-start)*l.row_height
         local h = l.row_height
         local is_today = date==os.date("%Y-%m-%d")
@@ -109,19 +111,22 @@ function View:paintTo(bb, ox, oy)
         text(day,pad,y+2*s,l.day_width,h*.55,13,true,is_today and white or black)
         local weekday = tonumber(os.date("%w",os.time{year=tonumber(year),month=tonumber(month),day=day,hour=12}))+1
         text(days[weekday],pad,y+h*.52,l.day_width,h*.4,9,true,is_today and white or black)
-        text(entry.text:match("[^\r\n]+") or "Eintrag hinzufügen",note_x+4*s,y,l.note_width-8*s,h,15,false,
+        text(entry.text:match("[^\r\n]+") or "Eintrag hinzufügen",note_x+4*s,y,l.note_width-8*s,h,13,false,
             entry.text=="" and Blitbuffer.Color8(125) or black)
         self:hit(note_x,y,l.note_width,h,function() self.owner:editText(date) end)
         rect(note_x,y,1,h,gray)
         for index,col in ipairs(cols) do
             local x = metric_x+(index-1)*l.metric_width
-            if col.kind=="habit" and entry.trackers[col.id] then
-                rect(x+3*s,y+3*s,l.metric_width-6*s,h-6*s,black)
+            local side=math.floor(math.min(32*s,l.metric_width-6*s,h-4*s))
+            local tile_x,tile_y=x+(l.metric_width-side)/2,y+(h-side)/2
+            if col.kind=="habit" then
+                rect(tile_x,tile_y,side,side,entry.trackers[col.id] and black or gray)
+                if not entry.trackers[col.id] then rect(tile_x+1,tile_y+1,side-2,side-2,white) end
             elseif col.kind=="sleep" then
                 local score = entry.sleep_score
                 if score ~= nil then
                     local shade = 255-math.floor(score*2.35)
-                    rect(x+3*s,y+3*s,l.metric_width-6*s,h-6*s,Blitbuffer.Color8(shade))
+                    rect(tile_x,tile_y,side,side,Blitbuffer.Color8(shade))
                     text(score,x,y,l.metric_width,h,14,true,shade<130 and white or black,true)
                 else text("—",x,y,l.metric_width,h,14,true) end
             elseif col.kind=="sport" then
@@ -149,6 +154,8 @@ function View:paintTo(bb, ox, oy)
     local footer = l.h-52*s
     rect(pad,footer-12*s,l.w-2*pad,1,black)
     button("Spalten",pad,footer,90*s,34*s,function() self.owner:showColumns() end)
-    text("Zeile: Text · Kachel: bearbeiten",pad+100*s,footer,l.w-2*pad-100*s,34*s,10,false)
+    button("Umbrel",pad+98*s,footer,72*s,34*s,function() self.owner:showSync() end)
+    button("1–15",l.w-pad-125*s,footer,58*s,34*s,function() self.owner.half=1; self.owner:refresh() end,self.half==1)
+    button("16–" .. count,l.w-pad-61*s,footer,61*s,34*s,function() self.owner.half=2; self.owner:refresh() end,self.half==2)
 end
 return View

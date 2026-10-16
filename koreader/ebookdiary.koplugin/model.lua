@@ -37,10 +37,25 @@ function Model.entry(date, original)
     return entry
 end
 
+function Model.withMetrics(date, original, metric)
+    local entry=Model.entry(date,original)
+    metric=metric or {}
+    local manual_sleep=entry.sleep_manual
+    if manual_sleep==nil then manual_sleep=entry.sleep_score~=nil end
+    local manual_sports=entry.sports_manual
+    if manual_sports==nil then manual_sports=next(entry.sports)~=nil end
+    if not manual_sleep then entry.sleep_score=metric.sleep_score end
+    if not manual_sports then entry.sports=Model.copy(metric.sports or {}) end
+    return entry
+end
+
 function Model.validateEntry(entry)
     assert(type(entry) == "table" and type(entry.text) == "string" and #entry.text <= 20000, "Ungültiger oder zu langer Text (max. 20.000 Bytes)")
     assert(type(entry.habits) == "table", "Ungültige Tracker")
     for i=1,3 do assert(type(entry.habits[i]) == "boolean", "Ungültiger Tracker") end
+    for _,flag in ipairs({"sleep_manual","sports_manual"}) do
+        assert(entry[flag]==nil or type(entry[flag])=="boolean","Ungültiger manueller Status")
+    end
     if entry.trackers ~= nil then
         assert(type(entry.trackers) == "table", "Ungültige Tracker")
         for id, value in pairs(entry.trackers) do
@@ -77,6 +92,7 @@ end
 function Model.validateConfig(config)
     assert(type(config) == "table" and type(config.columns) == "table", "Ungültige Spaltenkonfiguration")
     assert(type(config.next_id) == "number" and config.next_id >= 1 and config.next_id % 1 == 0, "Ungültige Spalten-ID")
+    assert(config.sync_url==nil or (type(config.sync_url)=="string" and config.sync_url:match("^http://[%w%.%-]+:?%d*/*$")),"Ungültige Serveradresse")
     local ids, visible = {}, 0
     for _, col in ipairs(config.columns) do
         assert(type(col.id) == "string" and col.id:match("^[a-z][a-z0-9_]*$") and not ids[col.id], "Ungültige oder doppelte Spalte")

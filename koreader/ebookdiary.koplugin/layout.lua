@@ -2,9 +2,9 @@ local Layout = {}
 function Layout.build(width, height, column_count)
     local scale = math.min(width / 600, height / 800)
     local pad = math.floor(16 * scale)
-    local day_width = math.floor(32 * scale)
-    local metric_width = math.floor(49 * scale)
-    local top = math.floor(174 * scale)
+    local day_width = math.floor(48 * scale)
+    local metric_width = math.floor(48 * scale)
+    local top = math.floor(154 * scale)
     local bottom = height - math.floor(65 * scale)
     local row_height = math.floor((bottom - top) / 16)
     local note_width = width - 2*pad - day_width - column_count*metric_width
