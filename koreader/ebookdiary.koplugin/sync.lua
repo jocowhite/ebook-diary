@@ -41,39 +41,155 @@ function Sync.validate(payload,month,json)
     end
     return days
 end
-function Sync.fetch(base,month,json,transport)
-    local url=Sync.url(base,month)
-    local body
-    if transport then body=transport(url) else
+function Sync.request(url,json,method,value,token,transport,limit)
+    local body=value and json.encode(value) or nil
+    local response
+    limit=limit or 500000
+    if transport then response=transport(url,method,body,token) else
         local http=require("socket.http")
         local socket=require("socket")
         local socketutil=require("socketutil")
+        local headers={Accept="application/json",Authorization=token and token~="" and ("Bearer " .. token) or nil}
+        local source
+        if body then
+            headers["Content-Type"]="application/json";headers["Content-Length"]=tostring(#body)
+            source=require("ltn12").source.string(body)
+        end
         local chunks,total={},0;local start=socket.gettime()
         socketutil:set_timeout(5,8)
         local ok,result,code=pcall(http.request,{
-            url=url,method="GET",redirect=false,headers={Accept="application/json"},
+            url=url,method=method,redirect=false,headers=headers,source=source,
             sink=function(chunk)
                 if chunk then
                     total=total+#chunk
-                    if total>500000 or socket.gettime()-start>8 then return nil,"Antwort zu groß oder Timeout" end
+                    if total>limit or socket.gettime()-start>8 then return nil,"Antwort zu groß oder Timeout" end
                     chunks[#chunks+1]=chunk
                 end
                 return 1
             end,
         })
         socketutil:reset_timeout()
+        if tonumber(code)==302 or tonumber(code)==301 or tonumber(code)==303 then
+            error("Umbrel-Anmeldung: Health Dashboard auf 0.4.0 aktualisieren und /kindle-setup öffnen.")
+        end
+        if tonumber(code)==401 then error("Verbindungsschlüssel fehlt oder ist falsch. /kindle-setup im angemeldeten Dashboard öffnen und Schlüssel unter Umbrel eintragen.") end
         assert(ok and result and tonumber(code)==200,"Umbrel nicht erreichbar oder HTTP-Fehler " .. (tonumber(code) or "(Verbindung)"))
-        body=table.concat(chunks)
+        response=table.concat(chunks)
     end
-    assert(type(body)=="string" and #body<=500000,"Ungültige Antwortgröße")
-    return Sync.validate(json.decode(body),month,json)
+    assert(type(response)=="string" and #response<=limit,"Ungültige Antwortgröße")
+    return json.decode(response)
 end
-function Sync.run(storage,base,month,json,transport)
-    local days=Sync.fetch(base,month,json,transport)
+function Sync.fetch(base,month,json,transport,token)
+    local fields={"text","habits","trackers","sports","sleep_score","sleep_manual","sports_manual"}
+function Sync.clean(entry)
+    local value={}
+    for _,key in ipairs(fields) do value[key]=Model.copy(entry[key]) end
+    return value
+end
+function Sync.journal(storage,base,month,json,token,transport)
+    local url=Sync.url(base,month):gsub("/days%?","/journal?")
+    local entries=storage:read(month)
+    local pending={}
+    for date,entry in pairs(entries) do
+        if entry._sync_dirty~=false or entry._sync_revision==nil then
+            pending[#pending+1]={date=date,entry=Sync.clean(entry),base_revision=entry._sync_revision or 0}
+        end
+    end
+    local columns={}
+    for _,col in ipairs(storage:readConfig().columns) do if col.kind=="habit" then columns[col.id]=col.label end end
+    local payload=Sync.request(url,json,"POST",{month=month,entries=pending,columns=columns},token,transport,2000000)
+    assert(type(payload)=="table" and payload.month==month and type(payload.entries)=="table" and type(payload.conflicts)=="table","Ungültige Tagebuch-Antwort")
+    local conflict_dates={}
+    for _,date in ipairs(payload.conflicts) do assert(type(date)=="string" and date:sub(1,7)==month,"Ungültiger Konflikt");conflict_dates[date]=true end
+    local remote={}
+    for _,record in pairs(payload.entries) do
+        assert(type(record)=="table" and type(record.date)=="string" and record.date:match("^%d%d%d%d%-%d%d%-%d%d$") and record.date:sub(1,7)==month and not remote[record.date],"Ungültiges Eintragsdatum")
+        local day=tonumber(record.date:sub(9,10));assert(day>=1 and day<=Model.monthDays(month),"Ungültiger Tag")
+        assert(type(record.revision)=="number" and record.revision>=1 and record.revision%1==0,"Ungültige Revision")
+        Model.validateEntry(record.entry);remote[record.date]=record
+    end
+    -- Validate the complete response before touching any local file.
+    for date in pairs(conflict_dates) do assert(remote[date] and entries[date],"Konflikt ohne Fassungen") end
+    for _,item in ipairs(pending) do assert(remote[item.date],"Bestätigung eines Eintrags fehlt") end
+    local conflicts={}
+    for date,record in pairs(remote) do
+        if conflict_dates[date] then conflicts[date]=record
+        else
+            local value=Model.entry(date,record.entry)
+            value._sync_revision=record.revision;value._sync_dirty=false
+            entries[date]=value
+        end
+    end
+    storage:writeFile("conflicts-" .. month .. ".json",conflicts)
+    storage:writeFile(month .. ".json",entries)
+    storage:writeFile("journal-status-" .. month .. ".json",{synced_at=os.date("!%Y-%m-%dT%H:%M:%SZ")})
+    local count=0;for _ in pairs(conflicts) do count=count+1 end
+    return count
+end
+function Sync.all(storage,base,month,json,token,transport)
+    local count=Sync.journal(storage,base,month,json,token,transport)
+    local ok,err=pcall(Sync.run,storage,base,month,json,transport,token)
+    return {conflicts=count,metrics_error=not ok and tostring(err) or nil}
+end
+return Sync.validate(Sync.request(Sync.url(base,month),json,"GET",nil,token,transport),month,json)
+end
+function Sync.run(storage,base,month,json,transport,token)
+    local days=Sync.fetch(base,month,json,transport,token)
     local cached=storage:readMetrics(month)
     for date,value in pairs(days) do cached.days[date]=value end
     cached.synced_at=os.date("!%Y-%m-%dT%H:%M:%SZ")
     storage:writeFile("metrics-" .. month .. ".json",cached)
     return cached
+end
+local fields={"text","habits","trackers","sports","sleep_score","sleep_manual","sports_manual"}
+function Sync.clean(entry)
+    local value={}
+    for _,key in ipairs(fields) do value[key]=Model.copy(entry[key]) end
+    return value
+end
+function Sync.journal(storage,base,month,json,token,transport)
+    local url=Sync.url(base,month):gsub("/days%?","/journal?")
+    local entries=storage:read(month)
+    local pending={}
+    for date,entry in pairs(entries) do
+        if entry._sync_dirty~=false or entry._sync_revision==nil then
+            pending[#pending+1]={date=date,entry=Sync.clean(entry),base_revision=entry._sync_revision or 0}
+        end
+    end
+    local columns={}
+    for _,col in ipairs(storage:readConfig().columns) do if col.kind=="habit" then columns[col.id]=col.label end end
+    local payload=Sync.request(url,json,"POST",{month=month,entries=pending,columns=columns},token,transport,2000000)
+    assert(type(payload)=="table" and payload.month==month and type(payload.entries)=="table" and type(payload.conflicts)=="table","Ungültige Tagebuch-Antwort")
+    local conflict_dates={}
+    for _,date in ipairs(payload.conflicts) do assert(type(date)=="string" and date:sub(1,7)==month,"Ungültiger Konflikt");conflict_dates[date]=true end
+    local remote={}
+    for _,record in pairs(payload.entries) do
+        assert(type(record)=="table" and type(record.date)=="string" and record.date:match("^%d%d%d%d%-%d%d%-%d%d$") and record.date:sub(1,7)==month and not remote[record.date],"Ungültiges Eintragsdatum")
+        local day=tonumber(record.date:sub(9,10));assert(day>=1 and day<=Model.monthDays(month),"Ungültiger Tag")
+        assert(type(record.revision)=="number" and record.revision>=1 and record.revision%1==0,"Ungültige Revision")
+        Model.validateEntry(record.entry);remote[record.date]=record
+    end
+    -- Validate the complete response before touching any local file.
+    for date in pairs(conflict_dates) do assert(remote[date] and entries[date],"Konflikt ohne Fassungen") end
+    for _,item in ipairs(pending) do assert(remote[item.date],"Bestätigung eines Eintrags fehlt") end
+    local conflicts={}
+    for date,record in pairs(remote) do
+        if conflict_dates[date] then conflicts[date]=record
+        else
+            local value=Model.entry(date,record.entry)
+            value._sync_revision=record.revision;value._sync_dirty=false
+            entries[date]=value
+        end
+    end
+    storage:writeFile("conflicts-" .. month .. ".json",conflicts)
+    storage:writeFile(month .. ".json",entries)
+    storage:writeFile("journal-status-" .. month .. ".json",{synced_at=os.date("!%Y-%m-%dT%H:%M:%SZ")})
+    local count=0;for _ in pairs(conflicts) do count=count+1 end
+    return count
+end
+function Sync.all(storage,base,month,json,token,transport)
+    local count=Sync.journal(storage,base,month,json,token,transport)
+    local ok,err=pcall(Sync.run,storage,base,month,json,transport,token)
+    return {conflicts=count,metrics_error=not ok and tostring(err) or nil}
 end
 return Sync

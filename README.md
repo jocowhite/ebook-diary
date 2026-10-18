@@ -38,11 +38,11 @@ Dann `http://127.0.0.1:8765` öffnen. Dafür ist kein Internet und kein Heimserv
 
 `data/metrics/YYYY-MM.json`: zwischengespeicherte Sport-/Schlafwerte und letzter erfolgreicher Abgleich.
 
-Dateien werden mit temporärer Datei und atomarem Ersetzen geschrieben. Der Dienst bindet ausschließlich an 127.0.0.1. Keine Tagebuchtexte werden an Umbrel geschickt. Die lokalen Dateien sind nicht verschlüsselt.
+Dateien werden mit temporärer Datei und atomarem Ersetzen geschrieben. Der Dienst bindet ausschließlich an 127.0.0.1. Der Browser-Prototyp schickt keine Tagebuchtexte an Umbrel; das KOReader-Plugin unterstützt dagegen den ausdrücklich gestarteten Tagebuch-Abgleich. Die lokalen Dateien sind nicht verschlüsselt.
 
 ## Umbrel-API (Vorschlag v1)
 
-Auf der Dashboard-App einen nur lesenden Endpunkt anlegen, z. B.:
+Die aktuelle Dashboard-App stellt den folgenden Messwert-Endpunkt bereit (mit Verbindungsschlüssel; die separate Tagebuch-API ist in `koreader/README.md` beschrieben):
 
 `GET /api/kindle/days?month=2026-10`
 
@@ -79,7 +79,7 @@ Dienst für den Abgleich starten (Beispieladresse durch die echte lokale Adresse
 UMBREL_DASHBOARD_URL='http://DEIN-UMBREL:PORT/api/kindle/days' python3 server.py
 ```
 
-Token bei Bedarf als Umgebungsvariable `UMBREL_DASHBOARD_TOKEN` setzen. Der Token liegt nicht in der Browser-Oberfläche. HTTP eignet sich nur für das vertraute Heimnetz; HTTPS wird ebenfalls unterstützt. Zugriff auf Umbrel erfolgt vom lokalen Python-Dienst, daher keine CORS-Freischaltung auf der Dashboard-App nötig.
+Für das aktuelle Health Dashboard den Verbindungsschlüssel aus `/kindle-setup` als Umgebungsvariable `UMBREL_DASHBOARD_TOKEN` setzen. Der Token liegt nicht in der Browser-Oberfläche. HTTP eignet sich nur für das vertraute Heimnetz; HTTPS wird ebenfalls unterstützt. Zugriff auf Umbrel erfolgt vom lokalen Python-Dienst, daher keine CORS-Freischaltung auf der Dashboard-App nötig.
 
 Automatischer Abgleich: beim Laden eines Monats, beim Zurückkehren zur offenen App und alle zehn Minuten, solange die App sichtbar ist. Timeout nach fünf Sekunden beim Dashboard-Abruf. Kein WLAN-Scan, kein automatisches Einschalten von WLAN, kein Hintergrunddienst im Standby. Nach einer längeren Reise müssen ältere Monate geöffnet werden, um sie nachzuladen. Alle Einträge funktionieren weiterhin ohne Umbrel.
 
@@ -153,10 +153,12 @@ Mit `JOURNAL_PORT` lässt sich der Standardport 8765 überschreiben. Umgebungsva
 
 Unter `koreader/ebookdiary.koplugin` liegt die native Lua-Version mit tabellarischer Monatshälfte, Texteditor, schwarzen Tracker-Kacheln, manuellem Sleep Score (0–100) und Symbolen für Schwimmen, Radfahren, Laufen, Fußball und Padel. Spalten lassen sich hinzufügen (als Tracker), umbenennen, verschieben und aus-/einblenden; bis zu sechs Kachelspalten sind gleichzeitig sichtbar. Bisherige Texte und Tracker werden übernommen.
 
-USB-Installation, Datensicherung und Gerätetest: [koreader/README.md](koreader/README.md). Das fertige Paket liegt unter [`dist/ebook-diary-koreader-prototype.zip`](dist/ebook-diary-koreader-prototype.zip) und lässt sich mit `python3 tools/package_plugin.py` neu erzeugen. Diese Version benötigt weder Python auf dem Kindle noch KUAL. Browser-Prototyp und Plugin verwenden getrennte Datenbestände; ein gemeinsamer Import/Export ist noch nicht implementiert. Das Plugin kann den aktuellen Monat lesend vom aktualisierten Dashboard laden; die IP-Adresse ist mit `192.168.178.98:8477` vorbelegt. Manuelle Werte bleiben vorrangig.
+USB-Installation, Datensicherung und Gerätetest: [koreader/README.md](koreader/README.md). Das fertige Paket liegt unter [`dist/ebook-diary-koreader-prototype.zip`](dist/ebook-diary-koreader-prototype.zip) und lässt sich mit `python3 tools/package_plugin.py` neu erzeugen. Diese Version benötigt weder Python auf dem Kindle noch KUAL. Browser-Prototyp und Plugin verwenden getrennte Datenbestände; ein gemeinsamer Import/Export ist noch nicht implementiert. Das Plugin synchronisiert Einträge des geöffneten Monats in beide Richtungen mit dem aktualisierten Dashboard. Der Dashboard-Editor unter `/journal` kann Texte und Tracker bearbeiten. Gleichzeitig geänderte Tage erzeugen Konflikte statt automatischer Überschreibungen. Die IP-Adresse ist mit `192.168.178.98:8477` vorbelegt; ein Verbindungsschlüssel löst die Umbrel-Anmeldung für die API ab. Health Dashboard 0.4.0 und die neue Plugin-ZIP sind erforderlich.
 
 ## Neue Designvorschau zur Abstimmung
 
 [HTML-Vorschau](docs/design-preview.html) · [Tabellenbild](docs/design-preview.png) · [Sleep-Score-Slider](docs/design-preview-slider.png)
 
 Die Vorschau zeigt die vorgeschlagene nächste Anordnung: Navigation oben rechts, Halbmonatswechsel unten rechts, breitere Datumsspalte, kleinere Tagebuchschrift, quadratische Kacheln und senkrechte Spaltentitel. Der Sleep Score ist über einen Slider mit ±1-Tasten und optionalem Löschen bedienbar. Es sind ausschließlich erfundene Daten; Änderungen gelten nur bis zum Neuladen. Der bestätigte Entwurf ist jetzt ins KOReader-Plugin übertragen, einschließlich Schlaf-Slider. Die HTML-Datei bleibt eine Vorschau mit Beispieldaten; der echte Umbrel-Abgleich steckt im Plugin. [Details und Browserprüfung](docs/design-preview.md).
+
+Die neue Einrichtung und der Fix für HTTP 302 sind unter [Umbrel verbinden](koreader/README.md#umbrel-verbinden-und-http-302-beheben) beschrieben. Serverdaten liegen persistent im Umbrel-App-Datenordner; vor Updates und dem ersten Abgleich beide Datenbestände sichern.

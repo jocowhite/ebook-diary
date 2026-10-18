@@ -45,6 +45,8 @@ function Diary:refresh()
         self.entries=self:getStorage():read(self.month)
         self.config=self:getStorage():readConfig()
         self.metrics=self:getStorage():readMetrics(self.month)
+        self.conflicts=self:getStorage():readFile("conflicts-" .. self.month .. ".json",{})
+        self.journal_status=self:getStorage():readFile("journal-status-" .. self.month .. ".json",{})
     end)
     if not ok then self:notify("Tagebuch konnte nicht geladen werden:\n" .. tostring(err)); return end
     if self.view then
@@ -73,6 +75,7 @@ function Diary:input(title,initial,save,options)
     dialog=InputDialog:new{
         title=title,input=initial,input_type=options.number and "number" or nil,
         description=options.description,
+        text_type=options.password and "password" or nil,
         allow_newline=options.multiline or false,fullscreen=options.multiline or false,
         add_nav_bar=options.multiline or false,
         buttons={{
@@ -185,8 +188,13 @@ function Diary:showSync()
         local NetworkMgr=require("ui/network/manager")
         NetworkMgr:runWhenConnected(function()
             local base=self.config.sync_url or Sync.default_url
-            local ok,err=pcall(Sync.run,self:getStorage(),base,self.month,json)
-            if ok then self:refresh();self:notify("Umbrel-Abgleich gespeichert")
+            local ok,err=pcall(Sync.all,self:getStorage(),base,self.month,json,self.config.sync_token)
+            if ok then
+                self:refresh()
+                local message="Tagebuch mit Umbrel abgeglichen."
+                if err.conflicts>0 then message=message .. "\n" .. err.conflicts .. " Konflikt(e): unter Umbrel → Konflikte entscheiden." end
+                if err.metrics_error then message=message .. "\nSchlaf-/Sportabruf fehlgeschlagen; alte Messwerte bleiben erhalten." end
+                self:notify(message)
             else self:notify("Kein Abgleich. Letzte Werte bleiben erhalten.\n" .. tostring(err)) end
         end)
     end}
@@ -197,9 +205,57 @@ function Diary:showSync()
             if not ok then self:notify("Bitte http://IP:Port eingeben.");return false end
             local config=Model.copy(self.config);config.sync_url=value:gsub("/+$","")
             return self:saveConfig(config)
-        end,{description="Heimnetzadresse inkl. Port; kein Tagebuchtext wird übertragen."})
+        end,{description="Heimnetzadresse inkl. Port; Einträge werden auf deinem Umbrel gespeichert."})
     end}
-    items[#items+1]={text="Letzter Abgleich: " .. (self.metrics.synced_at or "noch keiner"),callback=function() end}
-    menu=Menu:new{title="Umbrel · Schlaf und Sport",item_table=items};UIManager:show(menu)
+    items[#items+1]={text="Verbindungsschlüssel: " .. (self.config.sync_token and self.config.sync_token~="" and "hinterlegt" or "fehlt"),callback=function()
+        UIManager:close(menu)
+        self:input("Umbrel-Verbindungsschlüssel",self.config.sync_token or "",function(value)
+            value=value:gsub("%s",""):lower()
+            if value~="" and (not value:match("^[a-f0-9]+$") or #value~=24) then
+                self:notify("Bitte die 24 Zeichen von der Kindle-Verbindungsseite übernehmen.");return false
+            end
+            local config=Model.copy(self.config);config.sync_token=value
+            return self:saveConfig(config)
+        end,{password=true,description="Im angemeldeten Dashboard /kindle-setup öffnen. Nicht das Umbrel-Passwort eingeben."})
+    end}
+    local conflict_count=0;for _ in pairs(self.conflicts or {}) do conflict_count=conflict_count+1 end
+    items[#items+1]={text="Konflikte: " .. conflict_count,callback=function() UIManager:close(menu);self:showConflicts() end}
+    items[#items+1]={text="Letzter Kontakt: " .. (self.journal_status.synced_at or self.metrics.synced_at or "noch keiner"),callback=function() end}
+    menu=Menu:new{title="Umbrel · Tagebuch und Messwerte",item_table=items};UIManager:show(menu)
+end
+function Diary:showConflicts()
+    local items,menu={},nil
+    for date in pairs(self.conflicts or {}) do
+        local day=date
+        items[#items+1]={text=day,callback=function() UIManager:close(menu);self:resolveConflict(day) end}
+    end
+    if #items==0 then self:notify("Keine offenen Konflikte.");return end
+    table.sort(items,function(a,b)return a.text<b.text end)
+    menu=Menu:new{title="Konflikte · beide Fassungen bleiben erhalten",item_table=items};UIManager:show(menu)
+end
+function Diary:resolveConflict(date)
+    local remote=self.conflicts[date]
+    if not remote then return end
+    local menu
+    local function choose(use_remote)
+        local ok,err=pcall(function()
+            local store=self:getStorage();local entries=store:read(self.month)
+            local value=use_remote and Model.entry(date,remote.entry) or entries[date]
+            value._sync_revision=remote.revision;value._sync_dirty=not use_remote
+            entries[date]=value;store:writeFile(self.month .. ".json",entries)
+            local conflicts=Model.copy(self.conflicts);conflicts[date]=nil
+            store:writeFile("conflicts-" .. self.month .. ".json",conflicts)
+        end)
+        if ok then UIManager:close(menu);self:refresh();self:notify(use_remote and "Umbrel-Fassung übernommen" or "Kindle-Fassung vorgemerkt; jetzt erneut abgleichen.")
+        else self:notify("Konflikt nicht aufgelöst: " .. tostring(err)) end
+    end
+    menu=Menu:new{title="Konflikt · " .. date,item_table={
+        {text="Beide Fassungen ansehen",callback=function()
+            local TextViewer=require("ui/widget/textviewer")
+            UIManager:show(TextViewer:new{title=date,text="KINDLE\n" .. json.encode(Sync.clean(self:entry(date))) .. "\n\nUMBREL\n" .. json.encode(remote.entry)})
+        end},
+        {text="Umbrel-Fassung übernehmen",callback=function() UIManager:show(ConfirmBox:new{text="Lokale Fassung durch Umbrel ersetzen?",ok_callback=function()choose(true)end})end},
+        {text="Kindle-Fassung behalten und hochladen",callback=function()UIManager:show(ConfirmBox:new{text="Kindle-Fassung beim nächsten Abgleich über die angezeigte Umbrel-Fassung speichern?",ok_callback=function()choose(false)end})end},
+    }};UIManager:show(menu)
 end
 return Diary

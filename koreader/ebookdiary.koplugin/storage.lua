@@ -53,6 +53,8 @@ function Storage:save(date, entry)
     assert(day >= 1 and day <= count, "Ungültiger Tag")
     Model.validateEntry(entry)
     local entries = self:read(date:sub(1,7))
+    entry=Model.copy(entry)
+    entry._sync_dirty=true
     entries[date] = entry
     self:writeFile(date:sub(1,7) .. ".json", entries)
 end

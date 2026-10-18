@@ -67,10 +67,13 @@ for name,value in pairs(modules) do local v=value; package.preload[name]=functio
 local Diary=dofile("koreader/ebookdiary.koplugin/main.lua")
 local data,config={},Model.defaultConfig()
 local fail=false
+local replica_files={}
 local storage={
     read=function() return Model.copy(data) end,
     readConfig=function() return Model.copy(config) end,
     readMetrics=function() return {days={}} end,
+    readFile=function(_,name,default)return Model.copy(replica_files[name] or default) end,
+    writeFile=function(_,name,value)if name=="2026-10.json" then data=Model.copy(value) else replica_files[name]=Model.copy(value) end end,
     save=function(_,date,entry)
         if fail then error("Disk full") end
         Model.validateEntry(entry); data[date]=Model.copy(entry)
@@ -127,6 +130,22 @@ assert(#config.columns==5 and data["2026-10-16"].trackers.outside)
 owner:editText("2026-10-16"); editor=last(); editor.input="Nicht gespeichert"; fail=true
 editor.buttons[1][2].callback(); assert(data["2026-10-16"].text=="Mein erster Tabellentag")
 assert(last().text:match("Nicht gespeichert")); fail=false
+-- Paired key is masked in the menu and entered with a password widget.
+config.sync_token=string.rep("a",24)
+owner:refresh();owner:showSync()
+assert(last().item_table[3].text=="Verbindungsschlüssel: hinterlegt")
+last().item_table[3].callback();assert(last().text_type=="password");UI:close(last())
+-- Explicit conflict choices keep the chosen revision and update the local replica.
+local day="2026-10-16"
+local candidate=Model.entry(day);candidate.text="Remote candidate"
+replica_files["conflicts-2026-10.json"]={[day]={date=day,entry=candidate,revision=9}}
+owner:refresh();owner:resolveConflict(day);last().item_table[2].callback();last().ok_callback()
+assert(data[day].text=="Remote candidate" and data[day]._sync_revision==9 and data[day]._sync_dirty==false)
+assert(next(replica_files["conflicts-2026-10.json"])==nil)
+data[day].text="Keep my Kindle draft"
+replica_files["conflicts-2026-10.json"]={[day]={date=day,entry=candidate,revision=10}}
+owner:refresh();owner:resolveConflict(day);last().item_table[3].callback();last().ok_callback()
+assert(data[day].text=="Keep my Kindle draft" and data[day]._sync_revision==10 and data[day]._sync_dirty)
 -- Render an explicitly synthetic month for visual review of the real draw commands.
 for day=16,31 do
  local date=string.format("2026-10-%02d",day)

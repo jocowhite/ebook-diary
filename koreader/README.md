@@ -1,6 +1,6 @@
 # Tagebuch für KOReader – Tabellenfassung mit Umbrel-Abgleich
 
-Zielgerät laut Nutzer: Kindle 11. Generation (2024), Firmware 5.19.6, Véra; KOReader `20260702000` läuft. USB-Zugriff auf den Plugin-Ordner ist möglich. Die erste Tabellenfassung lief laut Nutzer; die aktuelle Layout-/Sync-Fassung benötigt einen erneuten Gerätetest. Sie benötigt weder KUAL noch Python, WLAN oder einen Heimserver.
+Zielgerät laut Nutzer: Kindle 11. Generation (2024), Firmware 5.19.6, Véra; KOReader `20260702000` läuft. USB-Zugriff auf den Plugin-Ordner ist möglich. Die erste Tabellenfassung lief laut Nutzer; die aktuelle Layout-/Sync-Fassung benötigt einen erneuten Gerätetest. Die lokale Nutzung benötigt weder KUAL noch Python, WLAN oder einen Heimserver. Für den Abgleich ist WLAN zum Umbrel erforderlich.
 
 ## Installation / Update über USB
 
@@ -27,7 +27,9 @@ Schlaf und Sport können manuell erfasst oder lesend aus Umbrel übernommen werd
 Dateien liegen unter `DataStorage:getDataDir()/ebook-diary/`, auf einem üblichen Kindle unter `koreader/ebook-diary/`:
 
 - `YYYY-MM.json`: Einträge, Tracker, manuelle Sportarten und Sleep Scores.
-- `columns.json`: Namen, Reihenfolge und Sichtbarkeit der Spalten sowie die Serveradresse.
+- `columns.json`: Namen, Reihenfolge und Sichtbarkeit der Spalten, Serveradresse und Verbindungsschlüssel.
+- `conflicts-YYYY-MM.json`: die Umbrel-Fassungen offener Konflikte; die Kindle-Fassung bleibt in der Monatsdatei.
+- `journal-status-YYYY-MM.json`: letzter erfolgreicher Tagebuch-Kontakt (UTC).
 - `metrics-YYYY-MM.json`: separat zwischengespeicherte Umbrel-Werte und Zeitstempel des letzten erfolgreichen Abgleichs (UTC).
 
 Die drei bisherigen Tracker werden anhand ihrer bisherigen Position übernommen: Draußen, Lesen und Gut gegessen. Vorhandene Texte bleiben erhalten. Die Zuordnung eigener Spalten erfolgt über feste IDs, nicht über deren Namen; Umbenennen und Verschieben verändern keine Tageswerte. Das Update schreibt die Monatsdateien erst beim nächsten Speichern eines Eintrags im jeweiligen Monat neu. Die älteren Felder bleiben erhalten; für die neue Version ergänzte Felder können von einer alten Plugin-Version beim Speichern wieder verworfen werden. Daher vor einem Downgrade sichern.
@@ -55,6 +57,7 @@ texlua tests/test_plugin_model.lua
 texlua tests/test_plugin_storage.lua
 texlua tests/test_plugin_ui.lua
 texlua tests/test_plugin_sync.lua
+texlua tests/test_plugin_journal.lua
 python3 tools/package_plugin.py
 # Optional mit benachbartem my-umbrel-apps-Checkout:
 python3 tools/check_sync_http.py
@@ -64,22 +67,57 @@ Die Tests prüfen Altdatenübernahme, Eingabegrenzen, Sleep Score einschließlic
 
 Die verwendeten Schnittstellen wurden mit dem offiziellen KOReader-Quellcode (Commit `9b10e0121f9011531ff095b31a1e55c79909c196`) abgeglichen, nicht mit dem exakten Geräte-Build. Der Paketbau nimmt ausschließlich Plugin-Lua-Dateien, fünf SVG-Symbole und diese Anleitung auf; persönliche Daten gehören nicht ins ZIP.
 
-## Umbrel verbinden
+## Umbrel verbinden und HTTP 302 beheben
 
-Die Serveradresse ist mit **`http://192.168.178.98:8477`** vorbelegt. Port 8477 stammt aus dem bestehenden Dashboard-Manifest; die tatsächliche Erreichbarkeit von diesem Kindle aus ist noch nicht geprüft. Unter **Umbrel → Server** lässt sich die Adresse ändern. **Umbrel → Jetzt abgleichen** lädt den gerade geöffneten Monat. KOReader fragt bei Bedarf nach WLAN; der Abgleich benötigt nur eine Verbindung zum Heimnetz, keinen Internetzugriff. Es gibt vorerst keinen automatischen Hintergrundabgleich.
+Die aktuelle Fassung benötigt **Health Dashboard 0.4.0** aus `jocowhite/my-umbrel-apps`. HTTP 302 kommt bei der bisherigen Einrichtung von der Umbrel-Anmeldung: Der Browser hat eine Sitzung, der Kindle nicht. Die neue App-Ausgabe nimmt exakt `/api/kindle/days` und `/api/kindle/journal` von der Cookie-Anmeldung aus und prüft dort stattdessen einen Verbindungsschlüssel. Dashboard, Editor und Verbindungsseite bleiben hinter der normalen Umbrel-Anmeldung. Eine Weiterleitung wird vom Plugin weiterhin nicht verfolgt.
 
-Voraussetzung ist die aktualisierte **Health Dashboard 0.3.1** aus `jocowhite/my-umbrel-apps` auf dem Umbrel-Server. Dort ist jetzt der nur lesende Endpunkt implementiert:
+1. Dashboard-App auf Umbrel auf **0.4.0** aktualisieren. Nur den Kindle zu aktualisieren behebt die Weiterleitung nicht.
+2. Im angemeldeten Browser `http://192.168.178.98:8477/kindle-setup` öffnen (oder **Kindle verbinden** im Dashboard).
+3. Den dort erzeugten Schlüssel auf dem Kindle unter **Umbrel → Verbindungsschlüssel** eintragen. Nicht das Umbrel-Passwort verwenden und den Schlüssel nicht im Chat teilen.
+4. Unter **Umbrel → Server** steht `http://192.168.178.98:8477`; die Adresse bleibt änderbar.
+5. **Umbrel → Jetzt abgleichen** wählen.
 
-```text
-GET http://192.168.178.98:8477/api/kindle/days?month=2026-10
-```
+Der Schlüssel erlaubt das Lesen der Messwerte und das Lesen/Bearbeiten des Tagebuchs. Er bleibt auf beiden Geräten gespeichert; auf dem Kindle in `columns.json`, auf Umbrel in der privaten Datei `data/kindle-api-token`. Diese Version verwendet HTTP im eigenen Heimnetz, keine öffentliche Internetfreigabe und keinen HTTPS-Login. Die Dateien sind nicht verschlüsselt.
 
-Er muss JSON direkt liefern. Falls die Umbrel-App-Authentifizierung stattdessen eine Anmeldeseite oder Weiterleitung liefert, kann das Plugin damit noch nicht synchronisieren; diese Authentifizierung wurde mangels Zugriff auf das tatsächliche Gerät nicht geprüft. Sie wird vom Plugin nicht umgangen. Diese Fassung verwendet eine HTTP-Heimnetzadresse und unterstützt noch keinen HTTPS- oder Token-Login.
+## Einträge in beide Richtungen synchronisieren
 
-Es werden nur Schlaf- und Sportwerte heruntergeladen. Tagebuchtexte, eigene Tracker und manuelle Werte werden nicht hochgeladen. Bei HTTP-Fehlern, Offlinebetrieb oder ungültigen Antworten bleibt der letzte Cache erhalten. Nur vollständig gültige Antworten werden gespeichert; vom Backend ausgelassene Tage bleiben im Cache unverändert. Ein gelieferter Tag ersetzt die beiden heruntergeladenen Messfelder; null bedeutet fehlende Daten.
+Der manuelle Abgleich betrifft den **gerade geöffneten Monat**:
 
-**Manuelle Werte haben Vorrang**, auch ein bewusst gelöschter Sleep Score oder eine bewusst leere Sportauswahl. In der Schlafansicht **Umbrel-Wert verwenden** bzw. in der Sportauswahl **Umbrel-Sportwerte verwenden** wählen, um diese Vorgabe zurückzusetzen. Ein alter gespeicherter Sleep Score und eine alte nicht leere Sportauswahl werden als manuelle Werte behandelt. Text- oder Trackeränderungen schreiben keine synchronisierten Werte in die manuellen Felder.
+- Neue und geänderte Kindle-Einträge werden auf Umbrel gespeichert.
+- Im Dashboard gespeicherte Änderungen werden auf den Kindle geladen.
+- Synchronisiert werden Text, Tracker-Werte und manuelle Schlaf-/Sportwerte. Namen eigener Tracker werden mit übertragen, damit sie im Dashboard lesbar sind. Anordnung und Sichtbarkeit der Spalten werden weiterhin auf dem Kindle eingestellt.
+- Der Abgleich läuft zuerst für das Tagebuch, danach separat für Garmin-Messwerte. Ist InfluxDB ausgefallen, kann das Tagebuch trotzdem erfolgreich abgeglichen werden; das Plugin meldet den getrennten Messwertfehler.
+- Es gibt keinen automatischen Hintergrundabgleich. Offline-Änderungen bleiben lokal. Für ältere Monate den jeweiligen Monat öffnen und abgleichen.
 
-### Bisher verifiziert
+Vorhandene Kindle-Einträge werden beim ersten Abgleich als noch nicht synchronisierte Einträge hochgeladen. Lokale Dateien bleiben erhalten. Ein HTTP-Fehler oder eine ungültige Antwort markiert lokale Änderungen nicht als synchronisiert. Eine verlorene Antwort nach erfolgreichem Upload lässt sich durch erneuten Abgleich auffangen, ohne doppelte Einträge zu erzeugen.
 
-Lua-Syntax, Modell-/Datei-/Controller-Tests mit API-Doubles, Sync-Validierung und Fehlerbehandlung bestehen. Zusätzlich hat der tatsächliche LuaSocket-Client über einen lokalen HTTP-Server den echten Dashboard-Endpunkt abgefragt und dessen Beispieldaten validiert; die Testumgebung verwendete dabei einen Python-JSON-Testadapter statt KOReaders RapidJSON. Der Dashboard-Endpunkt besteht drei Tests auch im offiziellen Python-3.13-Alpine-Container. Reale InfluxDB-Daten, die installierte Umbrel-Version, Netzwerk/Authentifizierung im Heimnetz, KOReaders RapidJSON und die neuen Gerätegesten sind noch nicht live geprüft.
+### Im Dashboard bearbeiten
+
+Nach dem App-Update `http://192.168.178.98:8477/journal` öffnen oder **Tagebuch** im Dashboard wählen. Nach der normalen Umbrel-Anmeldung lassen sich Monat und Tag auswählen, Text/Tracker ändern und manuelle Schlaf-/Sportwerte bearbeiten. **Speichern** schreibt auf Umbrel; der Kindle übernimmt das beim nächsten Abgleich des Monats. Der Browser hat kein Autosave.
+
+### Konflikte
+
+Wenn derselbe Tag seit dem letzten gemeinsamen Stand auf beiden Geräten verändert wurde, wird er nicht automatisch überschrieben. Andere konfliktfreie Tage werden trotzdem synchronisiert.
+
+Im Kindle unter **Umbrel → Konflikte** beide Fassungen ansehen und ausdrücklich die Umbrel-Fassung übernehmen oder die Kindle-Fassung für den nächsten Abgleich vormerken. Eine inzwischen erneut geänderte Umbrel-Fassung erzeugt wieder einen Konflikt. Im Browser bleibt bei einem Konflikt der Entwurf im Editor stehen; die aktuelle Umbrel-Fassung wird angezeigt und kann geladen oder nach Vergleich bewusst ersetzt werden.
+
+Dies ist eine Synchronisierung aktueller Fassungen mit Konfliktschutz, keine unbegrenzte Versionshistorie. Vorhandene Daten vor dem ersten Abgleich sichern.
+
+### Speicherort und Sicherung auf Umbrel
+
+Unter dem verwalteten App-Verzeichnis `${APP_DATA_DIR}/data` liegen:
+
+- `journal.sqlite3`: serverseitige Tagebucheinträge mit Revisionen und Tracker-Bezeichnungen.
+- `kindle-api-token`: Verbindungsschlüssel.
+
+Die Daten bleiben im persistenten Bind-Mount über Container-Neustarts und reguläre App-Updates erhalten. Für eine Dateisicherung Dashboard-App stoppen und den gesamten `data`-Ordner kopieren; die Sicherung separat aufbewahren. Auch den Kindle-Datenordner weiter sichern. Synchronisierung allein ist kein Schutz gegen den Verlust beider Geräte.
+
+### Garmin-Messwerte
+
+Schlaf und Sport werden weiterhin getrennt über `GET /api/kindle/days?month=YYYY-MM` geladen und im lokalen Messwert-Cache gehalten. Manuelle Vorgaben haben Vorrang, auch ein bewusst gelöschter Sleep Score oder eine bewusst leere Sportauswahl. **Umbrel-Wert verwenden** bzw. **Umbrel-Sportwerte verwenden** entfernt die manuelle Vorgabe. Die Tagebuch-Bearbeitung ändert keine Garmin-/InfluxDB-Quelldaten.
+
+### Verifiziert und noch offen
+
+Lua-Modell-, Datei-, Controller-, Sync- und Konflikttests bestehen. Der tatsächliche LuaSocket-Client hat lokal Einträge authentifiziert zum echten Dashboard-Endpunkt hochgeladen, aus SQLite wieder gelesen, Dashboard-Änderungen heruntergeladen und parallele Änderungen als Konflikt behalten. Im Cloud-Test ersetzt ein Python-JSON-Adapter KOReaders RapidJSON. Acht Backend-Tests sowie Browserprüfungen für Bearbeitung, Speicherung, Konflikte und Netzwerkfehler bestehen; der Dockerfile-Build wurde als UID 1000 mit persistentem Schreibzugriff geprüft. Die verwendeten Proxy-Ausnahmen wurden anhand des offiziellen Umbrel-Gateway-Codes geprüft.
+
+Die aktualisierte App muss noch auf dem tatsächlichen Umbrel installiert werden. Das Heimnetz, die installierte Umbrel-Version, KOReaders RapidJSON und der echte Kindle-Lauf sind von hier nicht getestet. Bei weiterem HTTP 302 bitte die auf Umbrel tatsächlich installierte Version prüfen; HTTP 401 bedeutet fehlenden/falschen Verbindungsschlüssel. Den Schlüssel nicht in Fehlerberichte übernehmen.

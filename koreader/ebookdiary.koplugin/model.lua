@@ -53,6 +53,8 @@ function Model.validateEntry(entry)
     assert(type(entry) == "table" and type(entry.text) == "string" and #entry.text <= 20000, "Ungültiger oder zu langer Text (max. 20.000 Bytes)")
     assert(type(entry.habits) == "table", "Ungültige Tracker")
     for i=1,3 do assert(type(entry.habits[i]) == "boolean", "Ungültiger Tracker") end
+    assert(entry._sync_revision==nil or (type(entry._sync_revision)=="number" and entry._sync_revision>=0 and entry._sync_revision%1==0),"Ungültige Sync-Revision")
+    assert(entry._sync_dirty==nil or type(entry._sync_dirty)=="boolean","Ungültiger Sync-Status")
     for _,flag in ipairs({"sleep_manual","sports_manual"}) do
         assert(entry[flag]==nil or type(entry[flag])=="boolean","Ungültiger manueller Status")
     end
